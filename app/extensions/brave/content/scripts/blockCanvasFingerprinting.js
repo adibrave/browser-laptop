@@ -8,7 +8,7 @@
  * Privacy Badger Chrome <https://github.com/EFForg/privacybadger>, Copyright (C) 2015 Electronic Frontier Foundation and other contributors
  */
 
-if (chrome.contentSettings.canvasFingerprinting == 'block') {
+if (true || chrome.contentSettings.canvasFingerprinting == 'block') {
   Error.stackTraceLimit = Infinity // collect all frames
 
   // https://code.google.com/p/v8-wiki/wiki/JavaScriptStackTraceApi
@@ -173,6 +173,22 @@ if (chrome.contentSettings.canvasFingerprinting == 'block') {
     }
   }
 
+  function overrideProperty (val) {
+      console.log("overrideProperty returning " + val);
+      chrome.ipcRenderer.sendToHost('got-canvas-fingerprinting', 'overrideProperty returning ' + val);
+      return allPurposeProxy;
+  }
+
+  /**
+   * Force a screen.foo or window.bar property to have a specific value.
+   * @param objName name of the object on which the property resides, such as "screen"
+   * @param itemName attribute name of the targeted property, such as "width"
+   * @param value simple value that should be returned, such as 1439.
+   */
+  function overrideWindowProperty (objName, itemName, value) {
+      chrome.webFrame.setGlobal(objName + ".prototype." + itemName, overrideProperty.bind(null, value));
+  }
+
   var methods = []
   var canvasMethods = ['getImageData', 'getLineDash', 'measureText']
   canvasMethods.forEach(function (method) {
@@ -246,4 +262,68 @@ if (chrome.contentSettings.canvasFingerprinting == 'block') {
     type: 'WebRTC',
     methodName: 'navigator.mediaDevices.enumerateDevices'
   })
+
+  class Random {
+      constructor () {
+          this.vals = new Uint32Array(10);
+          this.idx = 0;
+          window.crypto.getRandomValues(this.vals);
+      }
+
+      // start this Random creator over at the beginning of its sequence.
+      // This is intended to be used like so:
+      // var r = new Random();
+      // var a = r.randint(10);
+      // var b = r.randint(10);
+      // r.reset();
+      // assert(r.randint(10) == a);
+      // assert(r.randint(10) == b);
+      reset() {
+          this.idx = 0;
+      }
+
+      // Expand the vals array to have n entries.
+      // internal helper function only.
+      expand(n) {
+          if (n < this.vals.length) {
+              return;
+          }
+          var nnew = n - this.vals.length;
+          var newvals = new Uint32Array(nnew);
+          window.crypto.getRandomValues(newvals);
+          var v = new Uint32Array(n);
+          for (var i = 0; i < nnew; i++) {
+              v[n + i] = newvals[i];
+          }
+          this.vals = v;
+      }
+
+      // Primary interface for users.  Returns a random value in the range
+      // [0 .. limit - 1].
+      randint(limit) {
+          // XXX this is biased by the modulo
+          var i = this.idx++;
+          if (i > this.vals.length) {
+              this.reseed(2 * i);
+          }
+          return this.vals[i] % limit;
+      }
+  }
+
+  // Normalize and then randomize the screen dimensions
+  function randomizeScreen () {
+      prng = new Random();
+      dA = prng.randint(64);
+      dB = prng.randint(64);
+      dC = prng.randint(64);
+      dD = prng.randint(64);
+      console.log("randomizeScreen a=" + dA + " b=" + dB + " c=" + dC + " d=" + dD);
+      overrideWindowProperty('Screen', 'width', screen.width - dA);
+      overrideWindowProperty('Screen', 'height', screen.height - dB);
+      overrideWindowProperty('Screen', 'availWidth', screen.availWidth - dC);
+      overrideWindowProperty('Screen', 'height', screen.availHeight - dD);
+  }
+
+  randomizeScreen();
+
 }
